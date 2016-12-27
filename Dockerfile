@@ -4,7 +4,7 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM debian:jessie
+FROM norbertm/debian-curl-http2:latest
 
 # persistent / runtime deps
 ENV PHPIZE_DEPS \
@@ -19,7 +19,6 @@ ENV PHPIZE_DEPS \
 RUN apt-get update && apt-get install -y \
 		$PHPIZE_DEPS \
 		ca-certificates \
-		curl \
 		libedit2 \
 		libsqlite3-0 \
 		libxml2 \
@@ -86,10 +85,10 @@ COPY docker-php-source /usr/local/bin/
 RUN set -xe \
 	&& buildDeps=" \
 		$PHP_EXTRA_BUILD_DEPS \
-		libcurl4-openssl-dev \
 		libedit-dev \
 		libsqlite3-dev \
 		libssl-dev \
+		libssh2-1-dev \
 		libxml2-dev \
 	" \
 	&& apt-get update && apt-get install -y $buildDeps --no-install-recommends && rm -rf /var/lib/apt/lists/* \
