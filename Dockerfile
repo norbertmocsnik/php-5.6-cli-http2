@@ -4,7 +4,7 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM norbertm/debian-curl-http2:2
+FROM norbertm/debian-curl-http2:3
 
 # persistent / runtime deps
 ENV PHPIZE_DEPS \
