@@ -4,7 +4,7 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM norbertm/debian-curl-http2:3
+FROM norbertm/debian-curl-http2:4
 
 # persistent / runtime deps
 ENV PHPIZE_DEPS \
@@ -45,15 +45,21 @@ ENV PHP_LDFLAGS="-Wl,-O1 -Wl,--hash-style=both -pie"
 
 ENV GPG_KEYS 0BD78B5F97500D450838F95DFE857D9A90D90EC1 6E4F6AB321FDC07F2C332E3AC2BF0BC433CFC8B3
 
-ENV PHP_VERSION 5.6.31
-ENV PHP_URL="https://secure.php.net/get/php-5.6.31.tar.xz/from/this/mirror" PHP_ASC_URL="https://secure.php.net/get/php-5.6.31.tar.xz.asc/from/this/mirror"
-ENV PHP_SHA256="c464af61240a9b7729fabe0314cdbdd5a000a4f0c9bd201f89f8628732fe4ae4" PHP_MD5=""
+ENV PHP_VERSION 5.6.32
+ENV PHP_URL="https://secure.php.net/get/php-5.6.32.tar.xz/from/this/mirror" PHP_ASC_URL="https://secure.php.net/get/php-5.6.32.tar.xz.asc/from/this/mirror"
+ENV PHP_SHA256="8c2b4f721c7475fb9eabda2495209e91ea933082e6f34299d11cba88cd76e64b" PHP_MD5=""
 
 RUN set -xe; \
 	\
 	fetchDeps=' \
 		wget \
 	'; \
+	if ! command -v gpg > /dev/null; then \
+		fetchDeps="$fetchDeps \
+			dirmngr \
+			gnupg \
+		"; \
+	fi; \
 	apt-get update; \
 	apt-get install -y --no-install-recommends $fetchDeps; \
 	rm -rf /var/lib/apt/lists/*; \
@@ -77,10 +83,10 @@ RUN set -xe; \
 			gpg --keyserver ha.pool.sks-keyservers.net --recv-keys "$key"; \
 		done; \
 		gpg --batch --verify php.tar.xz.asc php.tar.xz; \
-		rm -r "$GNUPGHOME"; \
+		rm -rf "$GNUPGHOME"; \
 	fi; \
 	\
-	apt-get purge -y --auto-remove $fetchDeps
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $fetchDeps
 
 COPY docker-php-source /usr/local/bin/
 
@@ -92,6 +98,7 @@ RUN set -xe \
 		libssl-dev \
 		libssh2-1-dev \
 		libxml2-dev \
+		zlib1g-dev \
 	" \
 	&& apt-get update && apt-get install -y $buildDeps --no-install-recommends && rm -rf /var/lib/apt/lists/* \
 	\
