@@ -4,7 +4,16 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM norbertm/debian-curl-http2:5
+FROM norbertm/debian-curl-http2:6
+
+# prevent Debian's PHP packages from being installed
+# https://github.com/docker-library/php/pull/542
+RUN set -eux; \
+	{ \
+		echo 'Package: php*'; \
+		echo 'Pin: release *'; \
+		echo 'Pin-Priority: -1'; \
+	} > /etc/apt/preferences.d/no-debian-php
 
 # persistent / runtime deps
 ENV PHPIZE_DEPS \
@@ -14,16 +23,12 @@ ENV PHPIZE_DEPS \
 		g++ \
 		gcc \
 		libc-dev \
-		libpcre3-dev \
 		make \
 		pkg-config \
 		re2c
 RUN apt-get update && apt-get install -y \
 		$PHPIZE_DEPS \
 		ca-certificates \
-		libedit2 \
-		libsqlite3-0 \
-		libxml2 \
 		xz-utils \
 	--no-install-recommends && rm -r /var/lib/apt/lists/*
 
@@ -45,9 +50,9 @@ ENV PHP_LDFLAGS="-Wl,-O1 -Wl,--hash-style=both -pie"
 
 ENV GPG_KEYS 0BD78B5F97500D450838F95DFE857D9A90D90EC1 6E4F6AB321FDC07F2C332E3AC2BF0BC433CFC8B3
 
-ENV PHP_VERSION 5.6.32
-ENV PHP_URL="https://secure.php.net/get/php-5.6.32.tar.xz/from/this/mirror" PHP_ASC_URL="https://secure.php.net/get/php-5.6.32.tar.xz.asc/from/this/mirror"
-ENV PHP_SHA256="8c2b4f721c7475fb9eabda2495209e91ea933082e6f34299d11cba88cd76e64b" PHP_MD5=""
+ENV PHP_VERSION 5.6.33
+ENV PHP_URL="https://secure.php.net/get/php-5.6.33.tar.xz/from/this/mirror" PHP_ASC_URL="https://secure.php.net/get/php-5.6.33.tar.xz.asc/from/this/mirror"
+ENV PHP_SHA256="9004995fdf55f111cd9020e8b8aff975df3d8d4191776c601a46988c375f3553" PHP_MD5=""
 
 RUN set -xe; \
 	\
@@ -90,26 +95,36 @@ RUN set -xe; \
 
 COPY docker-php-source /usr/local/bin/
 
-RUN set -xe \
-	&& buildDeps=" \
-		$PHP_EXTRA_BUILD_DEPS \
+RUN set -eux; \
+	\
+	savedAptMark="$(apt-mark showmanual)"; \
+	apt-get update; \
+	apt-get install -y --no-install-recommends \
 		libedit-dev \
 		libsqlite3-dev \
 		libssl-dev \
 		libssh2-1-dev \
 		libxml2-dev \
 		zlib1g-dev \
-	" \
-	&& apt-get update && apt-get install -y $buildDeps --no-install-recommends && rm -rf /var/lib/apt/lists/* \
+		${PHP_EXTRA_BUILD_DEPS:-} \
+	; \
+	rm -rf /var/lib/apt/lists/*; \
 	\
-	&& export CFLAGS="$PHP_CFLAGS" \
+	export \
+		CFLAGS="$PHP_CFLAGS" \
 		CPPFLAGS="$PHP_CPPFLAGS" \
 		LDFLAGS="$PHP_LDFLAGS" \
-	&& docker-php-source extract \
-	&& cd /usr/src/php \
-	&& gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)" \
-	&& debMultiarch="$(dpkg-architecture --query DEB_BUILD_MULTIARCH)" \
-	&& ./configure \
+	; \
+	docker-php-source extract; \
+	cd /usr/src/php; \
+	gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
+	debMultiarch="$(dpkg-architecture --query DEB_BUILD_MULTIARCH)"; \
+# we just compiled curl manually so this is not needed
+## https://bugs.php.net/bug.php?id=74125
+##	if [ ! -d /usr/include/curl ]; then \
+##		ln -sT "/usr/include/$debMultiarch/curl" /usr/local/include/curl; \
+##	fi; \
+	./configure \
 		--build="$gnuArch" \
 		--with-config-file-path="$PHP_INI_DIR" \
 		--with-config-file-scan-dir="$PHP_INI_DIR/conf.d" \
@@ -128,24 +143,38 @@ RUN set -xe \
 		--with-openssl \
 		--with-zlib \
 		\
-# bundled pcre is too old for s390x (which isn't exactly a good sign)
-# /usr/src/php/ext/pcre/pcrelib/pcre_jit_compile.c:65:2: error: #error Unsupported architecture
-		--with-pcre-regex=/usr \
+# bundled pcre does not support JIT on s390x
+# https://manpages.debian.org/stretch/libpcre3-dev/pcrejit.3.en.html#AVAILABILITY_OF_JIT_SUPPORT
+		$(test "$gnuArch" = 's390x-linux-gnu' && echo '--without-pcre-jit') \
 		--with-libdir="lib/$debMultiarch" \
 		\
-		$PHP_EXTRA_CONFIGURE_ARGS \
-	&& make -j "$(nproc)" \
-	&& make install \
-	&& { find /usr/local/bin /usr/local/sbin -type f -executable -exec strip --strip-all '{}' + || true; } \
-	&& make clean \
-	&& cd / \
-	&& docker-php-source delete \
+		${PHP_EXTRA_CONFIGURE_ARGS:-} \
+	; \
+	make -j "$(nproc)"; \
+	make install; \
+	find /usr/local/bin /usr/local/sbin -type f -executable -exec strip --strip-all '{}' + || true; \
+	make clean; \
+	cd /; \
+	docker-php-source delete; \
 	\
-	&& apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $buildDeps \
+# reset apt-mark's "manual" list so that "purge --auto-remove" will remove all build dependencies
+	apt-mark auto '.*' > /dev/null; \
+	[ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
+	find /usr/local -type f -executable -exec ldd '{}' ';' \
+		| awk '/=>/ { print $(NF-1) }' \
+		| sort -u \
+		| xargs -r dpkg-query --search \
+		| cut -d: -f1 \
+		| sort -u \
+		| xargs -r apt-mark manual \
+	; \
+	apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+	\
+	php --version; \
 	\
 # https://github.com/docker-library/php/issues/443
-	&& pecl update-channels \
-	&& rm -rf /tmp/pear ~/.pearrc
+	pecl update-channels; \
+	rm -rf /tmp/pear ~/.pearrc
 
 COPY docker-php-ext-* docker-php-entrypoint /usr/local/bin/
 
