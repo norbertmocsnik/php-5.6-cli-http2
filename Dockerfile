@@ -4,7 +4,7 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM norbertm/debian-curl-http2:6
+FROM norbertm/debian-curl-http2:7
 
 # prevent Debian's PHP packages from being installed
 # https://github.com/docker-library/php/pull/542
